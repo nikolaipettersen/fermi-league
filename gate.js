@@ -7,34 +7,93 @@ $('gate-submit').addEventListener('click', handleGateSubmit);
 $('gate-code').addEventListener('keydown', e => { if (e.key === 'Enter') handleGateSubmit(); });
 
 async function handleGateSubmit() {
-  const code = $('gate-code').value;
+  const raw = $('gate-code').value;
+  const btn = $('gate-submit');
+
+  // Second tap of the "create a brand-new league?" confirmation.
+  if (btn.dataset.confirmingCreate === '1') {
+    await finishCreateAndJoin(raw, btn);
+    return;
+  }
+
   $('gate-error').textContent = '';
-  $('gate-submit').disabled = true;
+  btn.disabled = true;
   try {
     if (!myId) {
       const user = await ensureSignedIn();
       myId = user.uid;
     }
-    const ok = await tryJoinCode(code, myId);
-    if (ok) {
-      localStorage.setItem(LS_JOIN_CODE, code.trim().toUpperCase());
+
+    const legacyOk = await checkLegacyCode(raw);
+    if (legacyOk) {
+      rememberLeague(LEGACY_LEAGUE_ID, 'Fermi League');
+      setActiveLeague(LEGACY_LEAGUE_ID);
       window.location.href = 'board.html';
-    } else {
-      $('gate-error').textContent = 'That code doesn\u2019t match. Check with whoever shared the link.';
-      $('gate-submit').disabled = false;
+      return;
     }
+
+    const id = sanitizeCode(raw);
+    if (!id) {
+      $('gate-error').textContent = 'Enter a join code.';
+      btn.disabled = false;
+      return;
+    }
+
+    const exists = await leagueExists(id);
+    if (exists) {
+      rememberLeague(id, raw.trim().toUpperCase());
+      setActiveLeague(id);
+      window.location.href = 'board.html';
+      return;
+    }
+
+    // No league uses this code yet. Rather than silently spawning a new,
+    // empty league on every typo, ask for one more tap first.
+    btn.dataset.confirmingCreate = '1';
+    btn.textContent = 'No league found \u2014 create one?';
+    btn.disabled = false;
+    setTimeout(() => {
+      if (btn.dataset.confirmingCreate === '1') {
+        btn.dataset.confirmingCreate = '0';
+        btn.textContent = 'Enter';
+      }
+    }, 4000);
   } catch (e) {
     console.error(e);
-    $('gate-error').textContent = 'Could not connect. Check your internet connection and try again.';
-    $('gate-submit').disabled = false;
+    const detail = (e && (e.code || e.message)) ? ' (' + (e.code || e.message) + ')' : '';
+    $('gate-error').textContent = 'Could not connect' + detail + '. Check your internet connection and try again.';
+    btn.disabled = false;
   }
 }
 
-// On load: if this browser already has a working code saved, skip the form
-// entirely and go straight to the board.
+async function finishCreateAndJoin(raw, btn) {
+  btn.disabled = true;
+  btn.dataset.confirmingCreate = '0';
+  try {
+    if (!myId) {
+      const user = await ensureSignedIn();
+      myId = user.uid;
+    }
+    const id = sanitizeCode(raw);
+    await createLeague(id, myId);
+    rememberLeague(id, raw.trim().toUpperCase());
+    setActiveLeague(id);
+    window.location.href = 'board.html';
+  } catch (e) {
+    console.error(e);
+    $('gate-error').textContent = 'Could not create the league. Try again.';
+    btn.disabled = false;
+    btn.textContent = 'Enter';
+  }
+}
+
+// On load: if this browser already has a working active league, skip the
+// form entirely — unless we arrived via "+ Join another league", which
+// forces the form so a second league can be added deliberately.
 (async () => {
-  const savedCode = localStorage.getItem(LS_JOIN_CODE);
-  if (!savedCode) return; // show the form as normal
+  const forceForm = new URLSearchParams(window.location.search).has('join');
+  const active = getActiveLeague();
+  if (!active || forceForm) return;
 
   $('gate-form').hidden = true;
   $('gate-status').hidden = false;
@@ -42,19 +101,14 @@ async function handleGateSubmit() {
   try {
     const user = await ensureSignedIn();
     myId = user.uid;
-    const ok = await tryJoinCode(savedCode, myId);
-    if (ok) {
-      window.location.href = 'board.html';
-      return;
-    }
+    const ok = await leagueStillValid(active);
+    if (ok) { window.location.href = 'board.html'; return; }
+    forgetLeague(active);
   } catch (e) {
     console.error(e);
     // fall through to showing the form
   }
 
-  // Saved code no longer works (or something failed) — clear it and let
-  // them enter a fresh one.
-  localStorage.removeItem(LS_JOIN_CODE);
   $('gate-status').hidden = true;
   $('gate-form').hidden = false;
 })();

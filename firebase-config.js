@@ -1,4 +1,4 @@
-// Fill these in from your Firebase project settings
+// Firebase project settings.
 // (Firebase console → Project settings → General → Your apps → Web app → SDK setup and configuration)
 //
 // These values are NOT secret — they identify which Firebase project to talk to,
@@ -14,9 +14,6 @@ const firebaseConfig = {
   appId: "1:236228239764:web:e3d45651deda2de716af81"
 };
 
-
-// The join code people need to type to get into the league.
-// This is a SOFT lock only — it keeps out randoms who stumble on the link,
-// it does not stop someone who reads this file's source. Don't use it to
-// protect anything truly sensitive. Change this before sharing the link.
-const INITIAL_JOIN_CODE = "ARTBIO";
+// There's no single "initial" join code anymore — since multi-league support,
+// a league is created on the fly whenever someone types a code that isn't
+// already taken (see gate.js). Nothing to set here.

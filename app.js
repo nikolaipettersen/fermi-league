@@ -1,5 +1,5 @@
 // Fermi League — board page logic. shared.js (loaded first) provides
-// firebase/auth/db, the $ helper, LS_JOIN_CODE, and tryJoinCode().
+// firebase/auth/db, the $ helper, and all the join/league helpers.
 
 let myId = null;
 let isAdmin = false;
@@ -10,11 +10,14 @@ let weekOffset = 0;
 let allScores = [];
 let playerNames = {};
 let hasAutoScrolled = false;
-let adminUids = [];
 let inputMode = 'paste';
 let parsedScores = null;
 let scoresUnsub = null;
 let playersUnsub = null;
+
+let activeLeagueId = null;
+let playersRef = null;
+let scoresRef = null;
 
 /* ---------------- Date helpers ---------------- */
 
@@ -66,7 +69,7 @@ $('name-save').addEventListener('click', async () => {
   if (!name) return;
   $('name-save').disabled = true;
   try {
-    await db.collection('players').doc(myId).set({ name, joinedAt: firebase.firestore.FieldValue.serverTimestamp() });
+    await playersRef.doc(myId).set({ name, joinedAt: firebase.firestore.FieldValue.serverTimestamp() });
     myName = name;
     playerNames[myId] = name;
     showToast('Welcome, ' + name);
@@ -82,7 +85,7 @@ $('whoami-btn').addEventListener('click', () => {
   const next = prompt('Change your display name:', myName || '');
   if (next && next.trim() && next.trim() !== myName) {
     const name = next.trim().slice(0, 30);
-    db.collection('players').doc(myId).set({ name, joinedAt: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true })
+    playersRef.doc(myId).set({ name, joinedAt: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true })
       .then(() => { myName = name; playerNames[myId] = name; $('whoami-btn').textContent = name; render(); })
       .catch(() => showToast('Could not update name'));
   }
@@ -195,7 +198,7 @@ $('submit-btn').addEventListener('click', async () => {
   const date = todayStr();
   const docId = date + '~' + myId;
   try {
-    await db.collection('scores').doc(docId).set({
+    await scoresRef.doc(docId).set({
       uid: myId,
       date,
       q1: Math.round(v1 * 100) / 100,
@@ -409,7 +412,7 @@ window._deleteScore = async function (btn, docId) {
   }
   btn.disabled = true;
   try {
-    await db.collection('scores').doc(docId).delete();
+    await scoresRef.doc(docId).delete();
     showToast('Entry deleted');
   } catch (e) {
     console.error(e);
@@ -421,15 +424,7 @@ window._deleteScore = async function (btn, docId) {
 /* ---------------- Data subscriptions ---------------- */
 
 function subscribeToLeague() {
-  db.collection('meta').doc('league').get().then(snap => {
-    if (snap.exists) {
-      const meta = snap.data();
-      adminUids = meta.adminUids || [];
-      isAdmin = adminUids.includes(myId);
-    }
-  });
-
-  playersUnsub = db.collection('players').onSnapshot(snap => {
+  playersUnsub = playersRef.onSnapshot(snap => {
     snap.docChanges().forEach(change => {
       if (change.type === 'removed') return;
       const data = change.doc.data();
@@ -439,7 +434,7 @@ function subscribeToLeague() {
     render();
   }, e => console.error('players subscribe error', e));
 
-  scoresUnsub = db.collection('scores').onSnapshot(snap => {
+  scoresUnsub = scoresRef.onSnapshot(snap => {
     allScores = snap.docs.map(d => {
       const data = d.data();
       let avg = data.avg;
@@ -456,14 +451,31 @@ function subscribeToLeague() {
   });
 }
 
-/* ---------------- Boot ---------------- */
+/* ---------------- League switcher ---------------- */
+
+function renderLeagueSwitcher() {
+  const sel = $('league-switcher');
+  if (!sel) return;
+  const list = getJoinedLeagues();
+  sel.innerHTML = list.map(l =>
+    '<option value="' + escapeHtml(l.id) + '"' + (l.id === activeLeagueId ? ' selected' : '') + '>' + escapeHtml(l.label || l.id) + '</option>'
+  ).join('') + '<option value="__join__">+ Join another league</option>';
+}
+
+const switcherEl = $('league-switcher');
+if (switcherEl) {
+  switcherEl.addEventListener('change', e => {
+    const val = e.target.value;
+    if (val === '__join__') { window.location.href = 'index.html?join=1'; return; }
+    if (val !== activeLeagueId) { setActiveLeague(val); window.location.reload(); }
+  });
+}
 
 /* ---------------- Boot ---------------- */
 
 (async () => {
-  const savedCode = localStorage.getItem(LS_JOIN_CODE);
-  if (!savedCode) {
-    // No code on this browser at all — they shouldn't be here directly.
+  const active = getActiveLeague();
+  if (!active) {
     window.location.href = 'index.html';
     return;
   }
@@ -472,16 +484,25 @@ function subscribeToLeague() {
     const user = await ensureSignedIn();
     myId = user.uid;
 
-    const ok = await tryJoinCode(savedCode, myId);
+    const ok = await leagueStillValid(active);
     if (!ok) {
-      // Code was rotated or never valid — send them back to re-enter it.
-      localStorage.removeItem(LS_JOIN_CODE);
+      // The league disappeared, or was never valid — drop it and send
+      // them back to the gate rather than showing an empty board forever.
+      forgetLeague(active);
+      localStorage.removeItem(LS_ACTIVE_LEAGUE);
       window.location.href = 'index.html';
       return;
     }
 
+    activeLeagueId = active;
+    const cols = collectionsFor(active);
+    playersRef = cols.players;
+    scoresRef = cols.scores;
+    isAdmin = (await adminsFor(active)).includes(myId);
+
     $('checking-access').hidden = true;
     $('app').hidden = false;
+    renderLeagueSwitcher();
     subscribeToLeague();
   } catch (e) {
     console.error('Boot failed', e);

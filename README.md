@@ -115,10 +115,43 @@ If you're the founding admin, you'll see a small ✕ next to each entry on the
 daily leaderboard. Tap it once (it turns red and asks "Confirm?"), tap again
 within 3 seconds to actually delete it.
 
-To make someone else an admin too: in Firestore, edit `meta/league` and add
-their uid to the `adminUids` array. Their uid isn't shown anywhere in the UI
-right now — the simplest way to find it is to check the `players` collection
-in Firestore, matching their display name to the document ID next to it.
+To make someone else an admin too: in Firestore, find the league's document
+(`meta/league` for the first league, or `leagues/{CODE}` for any other) and
+add their uid to its `adminUids` array. Their uid isn't shown anywhere in the
+UI right now — the simplest way to find it is to check that league's
+`players` collection, matching their display name to the document ID next to
+it.
+
+## Running more than one league
+
+The site supports as many separate leagues as you want — one for coworkers,
+one for friends and family, and so on — each with its own players, its own
+scores, and its own admin, completely walled off from the others.
+
+**How it works:** the join code you type on the gate *is* the league. Typing
+a code nobody's used before offers to create a brand-new, empty league (with
+you as its founding admin) — a two-tap confirmation guards against a typo
+accidentally spinning up a stray league. Typing an existing code joins that
+league as it already stands.
+
+**Belonging to more than one.** Once you've joined a second league on the
+same device, a small dropdown appears next to your name in the header
+letting you flip between them. Each browser remembers its own private label
+for each league (so you might call the same league "Work" while a coworker's
+browser just shows its raw code) — these labels are never shared or synced,
+they're purely a personal convenience.
+
+**Joining another one later:** the dropdown's "+ Join another league" option
+takes you back to the gate to enter a new code without disturbing the league
+you're already in.
+
+**Under the hood, if you're curious:** your very first league — the one this
+project originally shipped with — still lives at the database's root level
+(`players`, `scores`, `meta/league`), exactly as it always has. Every league
+created after adding this feature lives under `leagues/{code}/players` and
+`leagues/{code}/scores` instead, with a `leagues/{code}` document holding
+that league's own admin list. Nothing needed to migrate for this to work —
+the two shapes just quietly coexist.
 
 ## Known limitations, honestly
 
