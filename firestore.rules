@@ -1,0 +1,57 @@
+rules_version = '2';
+
+// Security model, in plain terms:
+//
+// - Anyone can READ the join code check (they need to, to get past the gate),
+//   but the join code itself living in a public JS file (firebase-config.js)
+//   plus this readable doc means it's a SOFT lock: it keeps out people who
+//   don't have the link/code, not someone who deliberately reads source and
+//   queries Firestore directly. Treat it like a shared office door code, not
+//   a real password.
+// - Anyone signed in (anonymously — no email/password needed) can read the
+//   whole league's scores and player names, and can write their OWN player
+//   name and their OWN score for a given day.
+// - Only uids listed in meta/league.adminUids can delete score entries.
+// - Nobody can overwrite someone else's player name or someone else's score
+//   for a day that isn't theirs.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/meta/league) &&
+        request.auth.uid in get(/databases/$(database)/documents/meta/league).data.adminUids;
+    }
+
+    // League config: join code + admin list.
+    // Readable by anyone (even signed-out) so the gate can check the code.
+    // Writable only once (creation) by whoever gets there first, or by an
+    // existing admin after that.
+    match /meta/league {
+      allow read: if true;
+      allow create: if isSignedIn();
+      allow update: if isAdmin();
+      allow delete: if false;
+    }
+
+    // Player display names.
+    match /players/{uid} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && request.auth.uid == uid;
+    }
+
+    // Daily scores. Doc id convention: "{date}~{uid}".
+    match /scores/{docId} {
+      allow read: if isSignedIn();
+      allow create, update: if isSignedIn() &&
+        request.resource.data.uid == request.auth.uid &&
+        docId == request.resource.data.date + '~' + request.auth.uid;
+      allow delete: if isAdmin();
+    }
+  }
+}
