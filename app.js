@@ -1,30 +1,20 @@
-// Fermi League — app logic
-// Uses Firebase Anonymous Auth (one stable id per browser, no login screen)
-// and Firestore (shared, real-time database) so anyone with the join code
-// can use this from a plain link, no account of any kind required.
-
-firebase.initializeApp(firebaseConfig);
-const auth = firebase.auth();
-const db = firebase.firestore();
-
-const $ = id => document.getElementById(id);
+// Fermi League — board page logic. shared.js (loaded first) provides
+// firebase/auth/db, the $ helper, LS_JOIN_CODE, and tryJoinCode().
 
 let myId = null;
 let isAdmin = false;
 let myName = null;
-let joinCode = null;
 let currentTab = 'daily';
 let viewDate = todayStr();
 let weekOffset = 0;
 let allScores = [];
 let playerNames = {};
+let hasAutoScrolled = false;
 let adminUids = [];
 let inputMode = 'paste';
 let parsedScores = null;
 let scoresUnsub = null;
 let playersUnsub = null;
-
-const LS_JOIN_CODE = 'fermiLeague.joinCode';
 
 /* ---------------- Date helpers ---------------- */
 
@@ -65,64 +55,6 @@ function showToast(msg) {
   setTimeout(() => t.classList.remove('show'), 2200);
 }
 function getName(uid) { return playerNames[uid] || 'Player'; }
-
-/* ---------------- Join gate ---------------- */
-
-async function tryJoinCode(code) {
-  const trimmed = code.trim().toUpperCase();
-  if (!trimmed) return false;
-
-  const metaRef = db.collection('meta').doc('league');
-  const metaSnap = await metaRef.get();
-
-  if (!metaSnap.exists) {
-    // First person ever to open this league. They establish the join code
-    // and become the founding admin. This only happens once, for whoever
-    // deploys and opens the site first.
-    await metaRef.set({
-      joinCode: trimmed,
-      adminUids: [myId],
-      createdAt: firebase.firestore.FieldValue.serverTimestamp()
-    });
-    return true;
-  }
-
-  const meta = metaSnap.data();
-  if (meta.joinCode && meta.joinCode.toUpperCase() === trimmed) {
-    return true;
-  }
-  return false;
-}
-
-$('gate-submit').addEventListener('click', handleGateSubmit);
-$('gate-code').addEventListener('keydown', e => { if (e.key === 'Enter') handleGateSubmit(); });
-
-async function handleGateSubmit() {
-  const code = $('gate-code').value;
-  $('gate-error').textContent = '';
-  $('gate-submit').disabled = true;
-  try {
-    const ok = await tryJoinCode(code);
-    if (ok) {
-      joinCode = code.trim().toUpperCase();
-      localStorage.setItem(LS_JOIN_CODE, joinCode);
-      enterApp();
-    } else {
-      $('gate-error').textContent = 'That code doesn\u2019t match. Check with whoever shared the link.';
-      $('gate-submit').disabled = false;
-    }
-  } catch (e) {
-    console.error(e);
-    $('gate-error').textContent = 'Could not connect. Check your internet connection and try again.';
-    $('gate-submit').disabled = false;
-  }
-}
-
-function enterApp() {
-  $('gate').hidden = true;
-  $('app').hidden = false;
-  subscribeToLeague();
-}
 
 /* ---------------- Name registration ---------------- */
 
@@ -337,6 +269,18 @@ function render() {
     if (currentTab === 'daily') renderDaily();
     else if (currentTab === 'weekly') renderWeekly();
     else renderAllTime();
+
+    // Jump straight to the leaderboard for anyone who already has a name on
+    // this browser — no reason to make a returning player scroll past their
+    // own already-submitted panel to see standings. First-time joiners still
+    // land on the name prompt at the top, since they need to fill it in.
+    if (!hasAutoScrolled && myName) {
+      hasAutoScrolled = true;
+      requestAnimationFrame(() => {
+        const target = document.querySelector('.tabs');
+        if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+    }
   } catch (e) {
     console.error('render error', e);
     $('leaderboard-content').innerHTML = '<div class="empty-state">Something went wrong rendering the board:<br><code style="font-size:11px">' + escapeHtml(e.message || String(e)) + '</code></div>';
@@ -492,20 +436,33 @@ function subscribeToLeague() {
 
 /* ---------------- Boot ---------------- */
 
-auth.onAuthStateChanged(user => {
-  if (user) {
-    myId = user.uid;
-    // If this browser already knows the join code, skip straight past the gate.
-    const savedCode = localStorage.getItem(LS_JOIN_CODE);
-    if (savedCode) {
-      tryJoinCode(savedCode).then(ok => {
-        if (ok) { joinCode = savedCode; enterApp(); }
-      }).catch(() => { /* stay on gate, let them re-enter manually */ });
-    }
-  }
-});
+/* ---------------- Boot ---------------- */
 
-auth.signInAnonymously().catch(e => {
-  console.error('Anonymous sign-in failed', e);
-  $('gate-error').textContent = 'Could not connect to the league. Check your internet connection.';
-});
+(async () => {
+  const savedCode = localStorage.getItem(LS_JOIN_CODE);
+  if (!savedCode) {
+    // No code on this browser at all — they shouldn't be here directly.
+    window.location.href = 'index.html';
+    return;
+  }
+
+  try {
+    const user = await ensureSignedIn();
+    myId = user.uid;
+
+    const ok = await tryJoinCode(savedCode, myId);
+    if (!ok) {
+      // Code was rotated or never valid — send them back to re-enter it.
+      localStorage.removeItem(LS_JOIN_CODE);
+      window.location.href = 'index.html';
+      return;
+    }
+
+    $('checking-access').hidden = true;
+    $('app').hidden = false;
+    subscribeToLeague();
+  } catch (e) {
+    console.error('Boot failed', e);
+    $('checking-access').innerHTML = '<div class="loading-mark">&#402;</div><p>Could not connect. Check your internet connection and reload the page.</p>';
+  }
+})();

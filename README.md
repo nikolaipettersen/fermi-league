@@ -7,7 +7,12 @@ anyone who plays — just a link and a join code.
 ## How it's built, in plain terms
 
 - The **website** (this folder) is static HTML/CSS/JS. GitHub Pages hosts it
-  for free, same as your wedding page.
+  for free, same as your wedding page. It's two pages:
+  - `index.html` — just the join-code gate.
+  - `board.html` — the actual leaderboard, name entry, and score submission.
+    People land here after the gate accepts their code.
+  - `shared.js` holds the bits both pages need (connecting to Firebase, and
+    checking a code); `gate.js` and `app.js` hold each page's own logic.
 - The **shared data** (everyone's scores) lives in **Firebase Firestore**, a
   free real-time database from Google. The website talks to it directly from
   the browser — there's no server you have to run or maintain.
@@ -18,7 +23,10 @@ anyone who plays — just a link and a join code.
   browser/device.
 - The **join code** is a soft lock, not real security. It stops randoms who
   find the link from wandering in, but it does not stop someone determined to
-  poke around — don't use it for anything sensitive.
+  poke around — don't use it for anything sensitive. `board.html` re-checks
+  the code every time it loads, so if you rotate it, people using the old
+  code get sent back to the gate next time they open the page (not
+  instantly, since it only checks on page load — see below).
 
 ## What you'll need to do (this is the part that needs your input)
 

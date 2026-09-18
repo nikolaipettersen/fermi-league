@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Fermi League</title>
-<meta name="description" content="A private daily estimation league.">
+<meta name="description" content="A private estimation league.">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎯</text></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -13,113 +13,28 @@
 </head>
 <body>
 
-<!-- Gate: join code screen -->
-<div id="gate" class="gate">
-  <div class="gate-card">
+<div class="gate">
+  <div class="gate-card" id="gate-card">
     <div class="gate-mark">&#402;</div>
     <h1 class="gate-title">Fermi League</h1>
-    <p class="gate-sub">A private estimation league.<br>Enter the join code to get in.</p>
-    <input type="text" id="gate-code" class="gate-input" placeholder="Join code" autocomplete="off" autocapitalize="off" spellcheck="false">
-    <button id="gate-submit" class="gate-btn">Enter</button>
-    <p class="gate-error" id="gate-error"></p>
+    <p class="gate-sub" id="gate-sub">A private estimation league.<br>Enter the join code to get in.</p>
+
+    <p class="gate-status" id="gate-status" hidden>Checking&hellip;</p>
+
+    <div id="gate-form">
+      <input type="text" id="gate-code" class="gate-input" placeholder="Join code" autocomplete="off" autocapitalize="off" spellcheck="false">
+      <button id="gate-submit" class="gate-btn">Enter</button>
+      <p class="gate-error" id="gate-error"></p>
+    </div>
   </div>
 </div>
 
-<!-- Main app (hidden until code accepted + connected) -->
-<div id="app" class="app" hidden>
-
-  <header class="site-header">
-    <div class="wordmark">
-      <span class="wordmark-glyph">&#402;</span>
-      <div>
-        <h1>Fermi League</h1>
-        <p class="tagline">Daily estimation, ranked</p>
-      </div>
-    </div>
-    <button id="whoami-btn" class="whoami" title="Change your name"></button>
-  </header>
-
-  <main class="container">
-
-    <!-- Name registration -->
-    <section id="name-reg" class="panel name-reg" hidden>
-      <h2>What should we call you?</h2>
-      <p class="panel-sub">This is how you'll appear on the board. You can change it later.</p>
-      <input type="text" id="name-input" class="name-input" placeholder="Your name" maxlength="30" autocomplete="off">
-      <button id="name-save" class="btn btn-primary" disabled>Join the league</button>
-    </section>
-
-    <!-- Score entry -->
-    <section id="score-entry" class="panel score-entry" hidden>
-      <h2>Log today's result</h2>
-      <p class="panel-sub">Paste your results from fermi.gg, or enter the three multipliers by hand.</p>
-
-      <div id="paste-mode">
-        <textarea id="paste-input" class="paste-area" placeholder="Paste your Fermi results here&#10;(use &quot;Copy Text&quot; on the results screen)"></textarea>
-        <div id="parsed-result" class="parsed-result" hidden></div>
-      </div>
-
-      <div id="manual-entry" class="manual-entry" hidden>
-        <div class="score-inputs">
-          <div class="score-field"><label for="q1">Q1</label><input type="number" id="q1" min="1" step="0.01" placeholder="&times;"></div>
-          <div class="score-field"><label for="q2">Q2</label><input type="number" id="q2" min="1" step="0.01" placeholder="&times;"></div>
-          <div class="score-field"><label for="q3">Q3</label><input type="number" id="q3" min="1" step="0.01" placeholder="&times;"></div>
-        </div>
-      </div>
-
-      <div class="score-actions">
-        <button id="mode-toggle" class="link-btn">Enter manually instead</button>
-        <button id="submit-btn" class="btn btn-primary" disabled>Submit</button>
-      </div>
-    </section>
-
-    <!-- Already submitted -->
-    <section id="already-submitted" class="panel already-submitted" hidden>
-      <div class="check-line">&#10003; Logged for today</div>
-      <div class="recap" id="recap"></div>
-    </section>
-
-    <!-- Tabs -->
-    <nav class="tabs">
-      <button class="tab active" data-tab="daily">Today</button>
-      <button class="tab" data-tab="weekly">This week</button>
-      <button class="tab" data-tab="alltime">All time</button>
-    </nav>
-
-    <!-- Date/week navigation -->
-    <div id="date-nav" class="date-nav">
-      <button id="prev-day" aria-label="Previous day">&#8249;</button>
-      <span id="date-label" class="nav-label"></span>
-      <button id="next-day" aria-label="Next day">&#8250;</button>
-    </div>
-    <div id="week-nav" class="date-nav" hidden>
-      <button id="prev-week" aria-label="Previous week">&#8249;</button>
-      <span id="week-label" class="nav-label"></span>
-      <button id="next-week" aria-label="Next week">&#8250;</button>
-    </div>
-
-    <div id="leaderboard-content"></div>
-
-    <details class="how-it-works">
-      <summary>How scoring works</summary>
-      <p>Each day, everyone logs their three Fermi multipliers. Players are ranked by the average of the three (lower is better). Points are awarded by rank &mdash; in a field of five, first place earns five points, second earns four, and so on, with ties sharing rank and points. The weekly board sums points Monday to Sunday; all&#8209;time is the running total.</p>
-    </details>
-
-  </main>
-
-  <footer class="site-footer">
-    <span id="connection-status"></span>
-  </footer>
-</div>
-
-<div id="toast" class="toast"></div>
-
-<!-- Firebase SDKs (compat build — simplest to reason about, no bundler needed) -->
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
 
 <script src="firebase-config.js"></script>
-<script src="app.js"></script>
+<script src="shared.js"></script>
+<script src="gate.js"></script>
 </body>
 </html>
