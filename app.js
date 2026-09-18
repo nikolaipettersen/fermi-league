@@ -91,6 +91,21 @@ $('whoami-btn').addEventListener('click', () => {
 /* ---------------- Parsing fermi.gg share text ---------------- */
 
 function parseFermiText(text) {
+  // Preferred path: fermi.gg's own share format labels each score's line
+  // "01", "02", "03" — e.g. "01  5.09×". This is unambiguous, so try it
+  // before falling back to guesswork.
+  const labeled = [];
+  const lineRe = /^\s*0?[1-3]\D{0,4}?(\d+\.?\d*)\s*[\u00d7x]/gim;
+  let lm;
+  while ((lm = lineRe.exec(text)) !== null) {
+    const v = parseFloat(lm[1]);
+    if (v >= 1 && v < 100000) labeled.push(v);
+  }
+  if (labeled.length === 3) return { q1: labeled[0], q2: labeled[1], q3: labeled[2] };
+
+  // Fallback for anything pasted in a different shape: collect every
+  // multiplier-looking number, then try to spot which one is a summary
+  // (the average of the other three) so we can discard it.
   const mult = [];
   let m, p1 = /(\d+\.?\d*)\s*[\u00d7x]/gi;
   while ((m = p1.exec(text)) !== null) { const v = parseFloat(m[1]); if (v >= 1 && v < 100000) mult.push(v); }
@@ -101,14 +116,21 @@ function parseFermiText(text) {
   for (const v of mult) { const k = v.toFixed(4); if (!seen.has(k)) { seen.add(k); uniq.push(v); } }
 
   if (uniq.length >= 4) {
+    // Relative tolerance — fermi.gg rounds displayed values, so absolute
+    // tolerance breaks down once numbers get into the hundreds.
     for (let i = 0; i < uniq.length; i++) {
       const c = uniq[i], rest = uniq.filter((_, j) => j !== i);
       for (let a = 0; a < rest.length - 2; a++)
         for (let b = a + 1; b < rest.length - 1; b++)
-          for (let cc = b + 1; cc < rest.length; cc++)
-            if (Math.abs((rest[a] + rest[b] + rest[cc]) / 3 - c) < 0.06) return { q1: rest[a], q2: rest[b], q3: rest[cc] };
+          for (let cc = b + 1; cc < rest.length; cc++) {
+            const avg = (rest[a] + rest[b] + rest[cc]) / 3;
+            const tolerance = Math.max(0.06, avg * 0.02);
+            if (Math.abs(avg - c) < tolerance) return { q1: rest[a], q2: rest[b], q3: rest[cc] };
+          }
     }
-    return { q1: uniq[uniq.length - 3], q2: uniq[uniq.length - 2], q3: uniq[uniq.length - 1] };
+    // No summary identified — assume the per-question scores come first
+    // and whatever trails them is the summary (matches fermi.gg's layout).
+    return { q1: uniq[0], q2: uniq[1], q3: uniq[2] };
   }
   if (uniq.length === 3) return { q1: uniq[0], q2: uniq[1], q3: uniq[2] };
   return null;
@@ -463,6 +485,7 @@ function subscribeToLeague() {
     subscribeToLeague();
   } catch (e) {
     console.error('Boot failed', e);
-    $('checking-access').innerHTML = '<div class="loading-mark">&#402;</div><p>Could not connect. Check your internet connection and reload the page.</p>';
+    const detail = (e && (e.code || e.message)) ? ' (' + (e.code || e.message) + ')' : '';
+    $('checking-access').innerHTML = '<div class="loading-mark">&#402;</div><p>Could not connect' + detail + '. Check your internet connection and reload the page.</p>';
   }
 })();
