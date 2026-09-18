@@ -6,19 +6,14 @@
 // JS file. Access control is enforced separately by firestore.rules.
 
 const firebaseConfig = {
-apiKey: "AIzaSyA0OoiwrXy5Ly7SM7Roxp8nB3R_ObV5tbA",
-
+  apiKey: "AIzaSyA0OoiwrXy5Ly7SM7Roxp8nB3R_ObV5tbA",
   authDomain: "fermi-league.firebaseapp.com",
-
   projectId: "fermi-league",
-
   storageBucket: "fermi-league.firebasestorage.app",
-
   messagingSenderId: "236228239764",
-
   appId: "1:236228239764:web:e3d45651deda2de716af81"
-
 };
+
 
 // The join code people need to type to get into the league.
 // This is a SOFT lock only — it keeps out randoms who stumble on the link,
