@@ -317,7 +317,7 @@ function renderDaily() {
     return;
   }
   const rows = ranked.map(r => {
-    try { return rowHTML(r, r.points, 'pts', '\u00d7' + r.q1 + '  \u00d7' + r.q2 + '  \u00d7' + r.q3, isAdmin); }
+    try { return rowHTML(r, r.points, 'pts', '\u00d7' + r.q1 + '  \u00d7' + r.q2 + '  \u00d7' + r.q3 + '   <span class="avg">avg \u00d7' + r.avg.toFixed(2) + '</span>', isAdmin); }
     catch (e) { console.error('row error', e, r); return ''; }
   }).join('');
   $('leaderboard-content').innerHTML = '<div class="leaderboard">' + rows + '</div>';
@@ -384,7 +384,7 @@ function rowHTML(entry, mainVal, mainLbl, detail, showDelete) {
     '<div class="lb-rank ' + rc + '">' + entry.rank + '</div>' +
     '<div class="lb-avatar">' + escapeHtml(initials) + '</div>' +
     '<div class="lb-info"><div class="lb-name">' + escapeHtml(name) + (isMe ? ' <span style="opacity:.5">(you)</span>' : '') + '</div>' +
-    '<div class="lb-detail">' + escapeHtml(detail) + '</div></div>' +
+    '<div class="lb-detail">' + detail + '</div></div>' +
     '<div class="lb-score"><div class="lb-points">' + mainVal + '</div><div class="lb-points-label">' + mainLbl + '</div></div>' + delBtn + '</div>';
 }
 
