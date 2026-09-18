@@ -381,6 +381,7 @@ body {
 .lb-info { flex: 1; min-width: 0; }
 .lb-name { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .lb-detail { font-size: 11px; color: var(--ink-muted); font-family: var(--mono); }
+.lb-detail .avg { color: var(--ink); font-weight: 600; }
 .lb-score { text-align: right; flex-shrink: 0; }
 .lb-points { font-family: var(--serif); font-size: 18px; font-weight: 600; }
 .lb-points-label { font-size: 10px; color: var(--ink-muted); }
