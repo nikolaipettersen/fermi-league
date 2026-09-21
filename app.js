@@ -49,7 +49,10 @@ function formatWeekLabel(mon, sun) {
   if (mon.getMonth() === sun.getMonth()) return mon.getDate() + '\u2013' + sun.getDate() + ' ' + mn[mon.getMonth()];
   return mon.getDate() + ' ' + mn[mon.getMonth()] + ' \u2013 ' + sun.getDate() + ' ' + mn[sun.getMonth()];
 }
-function avg3(a, b, c) { return (a + b + c) / 3; }
+// Geometric mean — matches how fermi.gg itself combines the three
+// multiplier scores (an arithmetic mean gave a slightly different number
+// than the site showed).
+function avg3(a, b, c) { return Math.cbrt(a * b * c); }
 function escapeHtml(s) { const d = document.createElement('div'); d.textContent = String(s); return d.innerHTML; }
 function showToast(msg) {
   const t = $('toast');
