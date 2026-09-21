@@ -98,7 +98,9 @@ function parseFermiText(text) {
   // "01", "02", "03" — e.g. "01  5.09×". This is unambiguous, so try it
   // before falling back to guesswork.
   const labeled = [];
-  const lineRe = /^\s*0?[1-3]\D{0,4}?(\d+\.?\d*)\s*[\u00d7x]/gim;
+  // (?!\.?\d) stops the "0?[1-3]" label from matching the leading digit of
+  // an unrelated decimal number (e.g. the "1" in a "1.84x" summary line).
+  const lineRe = /^\s*0?[1-3](?!\.?\d)\D{0,4}?(\d+\.?\d*)\s*[\u00d7x]/gim;
   let lm;
   while ((lm = lineRe.exec(text)) !== null) {
     const v = parseFloat(lm[1]);
@@ -109,10 +111,12 @@ function parseFermiText(text) {
   // Fallback for anything pasted in a different shape: collect every
   // multiplier-looking number, then try to spot which one is a summary
   // (the average of the other three) so we can discard it.
+  // [ \t] (not \s) keeps these from crossing a line break and picking up
+  // the next line's question-number label as if it were a score.
   const mult = [];
-  let m, p1 = /(\d+\.?\d*)\s*[\u00d7x]/gi;
+  let m, p1 = /(\d+\.?\d*)[ \t]*[\u00d7x]/gi;
   while ((m = p1.exec(text)) !== null) { const v = parseFloat(m[1]); if (v >= 1 && v < 100000) mult.push(v); }
-  let p2 = /[\u00d7x]\s*(\d+\.?\d*)/gi;
+  let p2 = /[\u00d7x][ \t]*(\d+\.?\d*)/gi;
   while ((m = p2.exec(text)) !== null) { const v = parseFloat(m[1]); if (v >= 1 && v < 100000) mult.push(v); }
 
   const uniq = [], seen = new Set();
