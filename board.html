@@ -108,8 +108,22 @@
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
 
-<script src="firebase-config.js"></script>
-<script src="shared.js"></script>
-<script src="app.js"></script>
+<!--
+  Cache-busting: your own files below get overwritten on every deploy,
+  but browsers happily cache them anyway, which is why players sometimes
+  see stale behavior until they hard-refresh. Loading them through
+  document.write with a "?v=<timestamp>" tag makes every page load look
+  like a brand-new URL to the browser, so it always fetches the current
+  file instead of a cached one. Firebase's own CDN scripts above are left
+  alone since those are versioned in their URL already and don't change.
+-->
+<script>
+  (function () {
+    var v = Date.now();
+    document.write('<scr' + 'ipt src="firebase-config.js?v=' + v + '"></scr' + 'ipt>');
+    document.write('<scr' + 'ipt src="shared.js?v=' + v + '"></scr' + 'ipt>');
+    document.write('<scr' + 'ipt src="app.js?v=' + v + '"></scr' + 'ipt>');
+  })();
+</script>
 </body>
 </html>
