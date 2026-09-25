@@ -2,18 +2,36 @@ rules_version = '2';
 
 // Security model, in plain terms:
 //
-// - Anyone can READ the join code check (they need to, to get past the gate),
-//   but the join code itself living in a public JS file (firebase-config.js)
-//   plus this readable doc means it's a SOFT lock: it keeps out people who
-//   don't have the link/code, not someone who deliberately reads source and
-//   queries Firestore directly. Treat it like a shared office door code, not
-//   a real password.
-// - Anyone signed in (anonymously — no email/password needed) can read the
-//   whole league's scores and player names, and can write their OWN player
-//   name and their OWN score for a given day.
-// - Only uids listed in meta/league.adminUids can delete score entries.
+// - Anyone can READ the legacy league's join code (meta/league) so the gate
+//   can check it before signing in — that's a SOFT lock: it keeps out people
+//   who don't have the link/code, not someone who deliberately reads source
+//   and queries Firestore directly. Treat it like a shared office door code,
+//   not a real password. Leagues created after multi-league support (under
+//   /leagues) are checked only after anonymous sign-in, so their existence
+//   check requires isSignedIn() instead — the practical difference is small.
+// - Anyone signed in (anonymously — no email/password needed) can read a
+//   league's scores and player names, and can write their OWN player name
+//   and their OWN score for a given day, in any league.
+// - A player doc's linkedUids array is the set of auth uids allowed to act
+//   as that player. Normally that's one uid. It can grow to more than one
+//   through MERGING: if you type a name someone else already registered,
+//   the app offers to add your uid to their linkedUids so this device can
+//   continue their score history instead of starting a new one. That's
+//   self-service, same trust level as the join code — you can only ADD
+//   your own uid to an existing player, never remove another uid, rename
+//   the player, or touch anyone else's doc outright. A player doc created
+//   before merging existed has no linkedUids field yet; it's treated as
+//   owned solely by its own doc id until its owner's browser backfills the
+//   field (done automatically, the first time that owner's client loads
+//   its own doc post-upgrade).
+// - Only uids listed in a league's adminUids can delete score entries in
+//   that league, or rename that league (leagues/{id}.name, or meta/league's
+//   name for the legacy league) — renaming was already covered by the
+//   existing per-league "allow update: if isLeagueAdmin(leagueId)" rule
+//   below, unchanged. Being an admin of one league grants nothing in any
+//   other.
 // - Nobody can overwrite someone else's player name or someone else's score
-//   for a day that isn't theirs.
+//   for a day that isn't theirs, merges aside.
 
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -22,36 +40,100 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    function isAdmin() {
+    // Shared by every players/{uid} match block below (legacy and
+    // per-league alike).
+    function canCreatePlayerDoc(uid) {
+      return isSignedIn() && request.auth.uid == uid &&
+        request.resource.data.linkedUids == [uid];
+    }
+    function canUpdatePlayerDoc() {
+      return isSignedIn() && (
+        // Pre-merge doc (no linkedUids field yet): only its own owner.
+        (request.auth.uid == resource.id && !('linkedUids' in resource.data)) ||
+        // Already-linked device: a normal rename, or a second merged device.
+        (('linkedUids' in resource.data) && request.auth.uid in resource.data.linkedUids) ||
+        // A new merge: add exactly your own uid, nothing else may change.
+        (('linkedUids' in resource.data) &&
+          request.resource.data.name == resource.data.name &&
+          request.resource.data.linkedUids.size() == resource.data.linkedUids.size() + 1 &&
+          request.resource.data.linkedUids.hasAll(resource.data.linkedUids) &&
+          request.auth.uid in request.resource.data.linkedUids)
+      );
+    }
+    // Shared by every scores/{docId} match block below.
+    function canWriteScoreDoc(playerDocPath) {
+      return isSignedIn() &&
+        docId == request.resource.data.date + '~' + request.resource.data.uid &&
+        exists(playerDocPath) &&
+        (
+          !('linkedUids' in get(playerDocPath).data)
+            ? request.auth.uid == request.resource.data.uid
+            : request.auth.uid in get(playerDocPath).data.linkedUids
+        );
+    }
+
+    // ---------------------------------------------------------------
+    // Legacy league: the very first one, predating multi-league support.
+    // Lives at the database root instead of under /leagues/{id}. Left
+    // exactly as it was so its existing history isn't disturbed.
+    // ---------------------------------------------------------------
+
+    function isLegacyAdmin() {
       return isSignedIn() &&
         exists(/databases/$(database)/documents/meta/league) &&
         request.auth.uid in get(/databases/$(database)/documents/meta/league).data.adminUids;
     }
 
-    // League config: join code + admin list.
-    // Readable by anyone (even signed-out) so the gate can check the code.
-    // Writable only once (creation) by whoever gets there first, or by an
-    // existing admin after that.
     match /meta/league {
       allow read: if true;
       allow create: if isSignedIn();
-      allow update: if isAdmin();
+      allow update: if isLegacyAdmin();
       allow delete: if false;
     }
-
-    // Player display names.
     match /players/{uid} {
       allow read: if isSignedIn();
-      allow write: if isSignedIn() && request.auth.uid == uid;
+      allow create: if canCreatePlayerDoc(uid);
+      allow update: if canUpdatePlayerDoc();
     }
-
-    // Daily scores. Doc id convention: "{date}~{uid}".
     match /scores/{docId} {
       allow read: if isSignedIn();
-      allow create, update: if isSignedIn() &&
-        request.resource.data.uid == request.auth.uid &&
-        docId == request.resource.data.date + '~' + request.auth.uid;
-      allow delete: if isAdmin();
+      allow create, update: if canWriteScoreDoc(
+        /databases/$(database)/documents/players/$(request.resource.data.uid)
+      );
+      allow delete: if isLegacyAdmin();
+    }
+
+    // ---------------------------------------------------------------
+    // Every other league: one document per league under /leagues, keyed
+    // by its own (sanitized) join code — so "this document exists" and
+    // "this code is valid" are the same question, with no separate code
+    // field to keep in sync.
+    // ---------------------------------------------------------------
+
+    function isLeagueAdmin(leagueId) {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/leagues/$(leagueId)) &&
+        request.auth.uid in get(/databases/$(database)/documents/leagues/$(leagueId)).data.adminUids;
+    }
+
+    match /leagues/{leagueId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn(); // founding admin, on first use of a code
+      allow update: if isLeagueAdmin(leagueId); // covers renaming too — no field restriction
+      allow delete: if false;
+
+      match /players/{uid} {
+        allow read: if isSignedIn();
+        allow create: if canCreatePlayerDoc(uid);
+        allow update: if canUpdatePlayerDoc();
+      }
+      match /scores/{docId} {
+        allow read: if isSignedIn();
+        allow create, update: if canWriteScoreDoc(
+          /databases/$(database)/documents/leagues/$(leagueId)/players/$(request.resource.data.uid)
+        );
+        allow delete: if isLeagueAdmin(leagueId);
+      }
     }
   }
 }
