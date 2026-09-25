@@ -190,6 +190,16 @@ body {
   cursor: pointer;
 }
 .whoami:hover { border-color: var(--brass); color: var(--brass); }
+.rename-league-btn {
+  background: none;
+  border: none;
+  color: var(--ink-muted);
+  font-size: 14px;
+  cursor: pointer;
+  margin-left: 4px;
+  align-self: flex-start;
+}
+.rename-league-btn:hover { color: var(--brass); }
 
 .header-controls {
   display: flex;

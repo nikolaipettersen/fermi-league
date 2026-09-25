@@ -1,7 +1,8 @@
 // Fermi League — board page logic. shared.js (loaded first) provides
 // firebase/auth/db, the $ helper, and all the join/league helpers.
 
-let myId = null;
+let myId = null;       // canonical player id — the players/{id} doc this device acts as
+let myAuthUid = null;  // this browser's own Firebase anonymous auth uid (always fixed)
 let isAdmin = false;
 let myName = null;
 let currentTab = 'daily';
@@ -71,8 +72,41 @@ $('name-save').addEventListener('click', async () => {
   const name = $('name-input').value.trim();
   if (!name) return;
   $('name-save').disabled = true;
+
+  // Is that name already taken by someone else in this league? playerNames
+  // is already kept live-synced (subscribeToLeague started at boot), so no
+  // extra query is needed — just check what's already on the page.
+  const existingUid = Object.keys(playerNames).find(
+    uid => uid !== myAuthUid && playerNames[uid].trim().toLowerCase() === name.toLowerCase()
+  );
+
   try {
-    await playersRef.doc(myId).set({ name, joinedAt: firebase.firestore.FieldValue.serverTimestamp() });
+    if (existingUid) {
+      const merge = confirm(
+        '"' + name + '" is already in this league.\n\n' +
+        'Continue as them and pick up their score history on this device?'
+      );
+      if (merge) {
+        await playersRef.doc(existingUid).update({
+          linkedUids: firebase.firestore.FieldValue.arrayUnion(myAuthUid)
+        });
+        myId = existingUid;
+        setStoredPlayerId(activeLeagueId, existingUid);
+        myName = name;
+        playerNames[myId] = name;
+        showToast('Welcome back, ' + name);
+        render();
+        return;
+      }
+      // Declined — fall through and register a separate identity under
+      // this device's own uid, same as any other new name.
+    }
+
+    await playersRef.doc(myId).set({
+      name,
+      joinedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      linkedUids: [myId]
+    });
     myName = name;
     playerNames[myId] = name;
     showToast('Welcome, ' + name);
@@ -82,6 +116,33 @@ $('name-save').addEventListener('click', async () => {
     showToast('Could not save your name');
     $('name-save').disabled = false;
   }
+});
+
+/* ---------------- League name (shared, admin-editable) ---------------- */
+
+async function applyLeagueName() {
+  const name = await leagueDisplayName(activeLeagueId);
+  if (name) {
+    $('league-title').textContent = name;
+    document.title = name;
+    rememberLeague(activeLeagueId, name); // keep this browser's switcher label in sync
+    renderLeagueSwitcher();
+  }
+}
+
+$('rename-league-btn').addEventListener('click', () => {
+  const current = $('league-title').textContent;
+  const next = prompt('Rename this league:', current);
+  if (!next || !next.trim() || next.trim() === current) return;
+  const name = next.trim().slice(0, 40);
+  renameLeague(activeLeagueId, name)
+    .then(() => {
+      $('league-title').textContent = name;
+      document.title = name;
+      rememberLeague(activeLeagueId, name);
+      renderLeagueSwitcher();
+    })
+    .catch(() => showToast('Could not rename the league (admin only)'));
 });
 
 $('whoami-btn').addEventListener('click', () => {
@@ -436,7 +497,15 @@ function subscribeToLeague() {
       if (change.type === 'removed') return;
       const data = change.doc.data();
       playerNames[change.doc.id] = data.name || 'Player';
-      if (change.doc.id === myId) myName = data.name;
+      if (change.doc.id === myId) {
+        myName = data.name;
+        // Older player docs (created before merging existed) have no
+        // linkedUids field. Backfill it quietly so this identity can be
+        // merged into from another device later. Harmless to retry.
+        if (!data.linkedUids) {
+          playersRef.doc(myId).set({ linkedUids: [myId] }, { merge: true }).catch(() => {});
+        }
+      }
     });
     render();
   }, e => console.error('players subscribe error', e));
@@ -489,7 +558,10 @@ if (switcherEl) {
 
   try {
     const user = await ensureSignedIn();
-    myId = user.uid;
+    myAuthUid = user.uid;
+    // If this browser previously merged into someone else's name, act as
+    // that player id again; otherwise default to acting as ourselves.
+    myId = getStoredPlayerId(active) || myAuthUid;
 
     const ok = await leagueStillValid(active);
     if (!ok) {
@@ -505,12 +577,14 @@ if (switcherEl) {
     const cols = collectionsFor(active);
     playersRef = cols.players;
     scoresRef = cols.scores;
-    isAdmin = (await adminsFor(active)).includes(myId);
+    isAdmin = (await adminsFor(active)).includes(myAuthUid);
+    $('rename-league-btn').hidden = !isAdmin;
 
     $('checking-access').hidden = true;
     $('app').hidden = false;
     renderLeagueSwitcher();
     subscribeToLeague();
+    applyLeagueName();
   } catch (e) {
     console.error('Boot failed', e);
     const detail = (e && (e.code || e.message)) ? ' (' + (e.code || e.message) + ')' : '';

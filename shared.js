@@ -58,6 +58,14 @@ function forgetLeague(id) {
 function getActiveLeague() { return localStorage.getItem(LS_ACTIVE_LEAGUE); }
 function setActiveLeague(id) { localStorage.setItem(LS_ACTIVE_LEAGUE, id); }
 
+// Which player identity does THIS browser play as, within a given league?
+// Normally this is just the browser's own auth uid. After a merge (see
+// app.js), it's the uid of the player they merged into, so the device
+// keeps landing on that identity without going through name entry again.
+const LS_PLAYER_ID_PREFIX = 'fermiLeague.playerId.';
+function getStoredPlayerId(leagueId) { return localStorage.getItem(LS_PLAYER_ID_PREFIX + leagueId); }
+function setStoredPlayerId(leagueId, pid) { localStorage.setItem(LS_PLAYER_ID_PREFIX + leagueId, pid); }
+
 /* ---------------- Join codes ---------------- */
 
 // Firestore doc ids can't contain most punctuation, so a league's id is its
@@ -101,6 +109,22 @@ async function createLeague(id, uid) {
 async function leagueAdmins(id) {
   const snap = await db.collection('leagues').doc(id).get();
   return snap.exists ? (snap.data().adminUids || []) : [];
+}
+
+/* ---------------- League display name (shared, admin-editable) ---------------- */
+// Separate from the local per-browser label in LS_JOINED_LEAGUES: this is
+// the name everyone in the league sees, stored server-side.
+
+async function leagueDisplayName(leagueId) {
+  const ref = leagueId === LEGACY_LEAGUE_ID ? db.collection('meta').doc('league') : db.collection('leagues').doc(leagueId);
+  const snap = await ref.get();
+  return snap.exists ? (snap.data().name || null) : null;
+}
+async function renameLeague(leagueId, name) {
+  const trimmed = (name || '').trim().slice(0, 40);
+  if (!trimmed) return;
+  const ref = leagueId === LEGACY_LEAGUE_ID ? db.collection('meta').doc('league') : db.collection('leagues').doc(leagueId);
+  await ref.set({ name: trimmed }, { merge: true });
 }
 
 /* ---------------- Dispatch: legacy league vs. a leagues/{id} league ---------------- */
